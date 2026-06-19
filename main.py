@@ -221,7 +221,7 @@ def main() -> None:
 
         except Exception as e:
             console.print(f"[red]Agent 执行失败：{e}[/red]")
-            console.print("[yellow]请确认 Ollama 已启动，并且模型已经 pull 到本地。[/yellow]")
+            console.print("[yellow]请确认 LM Studio Local Server 已启动，并且模型已加载。[/yellow]")
 
 
 if __name__ == "__main__":
