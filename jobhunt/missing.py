@@ -1,4 +1,4 @@
-"""Missing information checks for JobHuntLedger records."""
+"""求职台账记录的缺失信息检查。"""
 
 from __future__ import annotations
 
@@ -10,9 +10,11 @@ MissingResult = dict[str, list[str]]
 
 
 def is_missing(value: object) -> bool:
+    """判断值是否应视为缺失。"""
     if value is None:
         return True
     if isinstance(value, str):
+        # None、空字符串、"待补充" 都表示仍需用户补充信息。
         return value.strip() in {"", "待补充"}
     return False
 
@@ -28,8 +30,10 @@ def _contains_any(value: object, keywords: Iterable[str]) -> bool:
 
 
 def check_application_missing_fields(application: Any) -> MissingResult:
+    """检查投递记录中必须补充和建议补充的字段。"""
     missing = _empty_result()
 
+    # required 表示必须补充，recommended 表示建议补充。
     if is_missing(application.company):
         missing["required"].append("company")
     if is_missing(application.position):
@@ -48,8 +52,10 @@ def check_application_missing_fields(application: Any) -> MissingResult:
 
 
 def check_interview_missing_fields(interview: Any) -> MissingResult:
+    """检查面试记录中必须补充和建议补充的字段。"""
     missing = _empty_result()
 
+    # required 表示必须补充，recommended 表示建议补充。
     if is_missing(interview.company):
         missing["required"].append("company")
     if is_missing(interview.position):
@@ -69,6 +75,7 @@ def check_all_missing_info(
     applications: Iterable[Any],
     interviews: Iterable[Any],
 ) -> dict[str, list[dict[str, object]]]:
+    """按投递记录和面试记录汇总缺失信息。"""
     return {
         "applications": [
             {

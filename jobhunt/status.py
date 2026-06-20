@@ -1,4 +1,4 @@
-"""Status values and normalization helpers for JobHuntLedger."""
+"""求职状态值与状态归一化工具。"""
 
 from __future__ import annotations
 
@@ -44,6 +44,7 @@ STATUS_ALIASES = {
 
 
 def normalize_status(text: str) -> str:
+    """尽量将原始状态文本归一化为 V1 支持的状态。"""
     normalized = text.strip()
     if normalized in SUPPORTED_STATUSES:
         return normalized
@@ -51,4 +52,5 @@ def normalize_status(text: str) -> str:
 
 
 def is_supported_status(status: str) -> bool:
+    """判断状态在简单归一化后是否属于支持范围。"""
     return normalize_status(status) in SUPPORTED_STATUSES

@@ -14,11 +14,13 @@ from jobhunt.repository import create_application, create_interview
 
 @pytest.fixture
 def db_path(tmp_path):
+    """每个提醒测试使用独立的临时 SQLite 数据库。"""
     return tmp_path / "jobhunt.db"
 
 
 @pytest.fixture
 def application(db_path):
+    """创建面试记录所需的投递记录。"""
     return create_application(
         company="Acme",
         position="Backend Engineer",
@@ -69,6 +71,7 @@ def test_list_interviews_next_three_days_includes_today_tomorrow_and_day_after(
     db_path,
     application,
 ):
+    # 未来三天包含今天、明天、后天。
     today = date(2026, 6, 20)
     first = add_interview(db_path, application, "2026-06-20 09:00", "一面")
     second = add_interview(db_path, application, "2026-06-21 10:00", "二面")
@@ -81,6 +84,7 @@ def test_list_interviews_next_three_days_includes_today_tomorrow_and_day_after(
 
 
 def test_list_interviews_this_week_uses_iso_week(db_path, application):
+    # ISO 周从周一开始，到周日结束。
     today = date(2026, 6, 20)
     monday = add_interview(db_path, application, "2026-06-15 09:00", "周一")
     sunday = add_interview(db_path, application, "2026-06-21 18:00", "周日")
@@ -93,6 +97,7 @@ def test_list_interviews_this_week_uses_iso_week(db_path, application):
 
 
 def test_list_interviews_this_month_uses_month_start_and_end(db_path, application):
+    # 本月范围只包含当月 1 号到最后一天。
     today = date(2026, 2, 14)
     first_day = add_interview(db_path, application, "2026-02-01 00:00", "月初")
     middle = add_interview(db_path, application, "2026-02-14 10:00", "月中")
