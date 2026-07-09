@@ -11,15 +11,28 @@ from pathlib import Path
 
 from jobhunt.database import DEFAULT_DB_PATH
 from jobhunt.missing import (
+    check_all_missing_info,
     check_application_missing_fields,
     check_interview_missing_fields,
 )
 from jobhunt.models import Application, Interview
-from jobhunt.parser import parse_application_text, parse_interview_text
+from jobhunt.parser import (
+    parse_application_text,
+    parse_interview_text,
+    parse_status_update_text,
+)
+from jobhunt.reminders import (
+    list_interviews_next_three_days,
+    list_interviews_this_week,
+    list_interviews_today,
+    list_interviews_tomorrow,
+)
 from jobhunt.repository import (
     create_application,
     create_interview,
     find_applications_by_company,
+    list_applications,
+    list_interviews,
     update_application_status,
 )
 from jobhunt.status import normalize_status
@@ -263,3 +276,137 @@ def confirm_create_interview(
         "interview": interview,
         "updated_status": updated_status,
     }
+
+
+def list_all_applications(
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Application]:
+    """查询全部投递记录。
+
+    Args:
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        repository 返回的 Application 列表；展示格式由 CLI 或 Agent 层负责。
+    """
+    return list_applications(db_path=db_path)
+
+
+def get_today_interviews(
+    today: date | None = None,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Interview]:
+    """查询今天的面试记录。
+
+    Args:
+        today: 查询基准日；未传入时由 reminders 使用系统日期。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        今天 00:00 到 23:59 之间的 Interview 列表。
+    """
+    return list_interviews_today(today=today, db_path=db_path)
+
+
+def get_tomorrow_interviews(
+    today: date | None = None,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Interview]:
+    """查询明天的面试记录。
+
+    Args:
+        today: 查询基准日；未传入时由 reminders 使用系统日期。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        明天 00:00 到 23:59 之间的 Interview 列表。
+    """
+    return list_interviews_tomorrow(today=today, db_path=db_path)
+
+
+def get_next_three_days_interviews(
+    today: date | None = None,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Interview]:
+    """查询未来三天的面试记录。
+
+    Args:
+        today: 查询基准日；未传入时由 reminders 使用系统日期。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        未来三天的 Interview 列表，范围包含今天、明天、后天。
+    """
+    # 未来三天的边界统一由 reminders 维护，service 只表达业务意图。
+    return list_interviews_next_three_days(today=today, db_path=db_path)
+
+
+def get_weekly_interviews(
+    today: date | None = None,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Interview]:
+    """查询本周的面试记录。
+
+    Args:
+        today: 查询基准日；未传入时由 reminders 使用系统日期。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        ISO 周内的 Interview 列表，范围为周一到周日。
+    """
+    # 本周范围按 ISO 周计算，即周一到周日。
+    return list_interviews_this_week(today=today, db_path=db_path)
+
+
+def check_missing_info(
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> dict[str, list[dict[str, object]]]:
+    """汇总检查投递和面试记录的缺失信息。
+
+    Args:
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        按 applications 和 interviews 分组的缺失信息检查结果。
+    """
+    # service 负责聚合两类记录，具体缺失规则仍由 missing 模块统一维护。
+    return check_all_missing_info(
+        applications=list_applications(db_path=db_path),
+        interviews=list_interviews(db_path=db_path),
+    )
+
+
+def update_application_status_from_text(
+    text: str,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> Application:
+    """根据自然语言状态文本更新投递状态。
+
+    Args:
+        text: 用户输入的状态更新文本，例如“陕西某软件公司一面通过了。”。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        更新后的 Application 对象。
+
+    Raises:
+        ValueError: 当文本中的公司无法匹配任何投递记录时抛出。
+    """
+    parsed = parse_status_update_text(text)
+    applications = find_applications_by_company(
+        str(parsed.get("company") or ""),
+        db_path=db_path,
+    )
+    if not applications:
+        raise ValueError("未找到对应公司的投递记录，无法更新状态")
+
+    # V1 简化策略：同一公司有多条投递时先更新第一条；后续版本再按 position 精确匹配。
+    target = applications[0]
+    if target.id is None:
+        raise ValueError("投递记录缺少 id，无法更新状态")
+
+    return update_application_status(
+        application_id=target.id,
+        status=str(parsed.get("status") or ""),
+        db_path=db_path,
+    )
