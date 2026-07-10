@@ -12,6 +12,7 @@ from jobhunt.repository import (
 )
 from jobhunt.service import (
     check_missing_info,
+    confirm_update_application_status,
     confirm_create_application,
     confirm_create_interview,
     get_next_three_days_interviews,
@@ -21,6 +22,7 @@ from jobhunt.service import (
     list_all_applications,
     preview_application_from_text,
     preview_interview_from_text,
+    preview_status_update_from_text,
     update_application_status_from_text,
 )
 
@@ -298,6 +300,45 @@ def test_update_application_status_from_text_updates_existing_application(db_pat
     assert updated.status == "一面通过"
     assert list_applications(db_path=db_path)[0].status == "一面通过"
 
+
+def test_preview_status_update_from_text_does_not_save_to_database(db_path):
+    create_application(
+        company="陕西某软件公司",
+        position="软件测试",
+        db_path=db_path,
+    )
+
+    preview = preview_status_update_from_text(
+        "陕西某软件公司一面通过了。",
+        db_path=db_path,
+    )
+
+    assert preview["action"] == "preview_status_update"
+    assert preview["parsed"]["status"] == "一面通过"
+    assert preview["matched_application"]["company"] == "陕西某软件公司"
+    assert preview["needs_application_match"] is False
+    assert preview["new_status"] == "一面通过"
+    assert preview["will_save"] is False
+    assert list_applications(db_path=db_path)[0].status == "已投递"
+
+
+def test_confirm_update_application_status_saves_preview_result(db_path):
+    create_application(
+        company="陕西某软件公司",
+        position="软件测试",
+        db_path=db_path,
+    )
+    preview = preview_status_update_from_text(
+        "陕西某软件公司一面通过了。",
+        db_path=db_path,
+    )
+
+    updated = confirm_update_application_status(preview, db_path=db_path)
+
+    assert updated.status == "一面通过"
+    assert list_applications(db_path=db_path)[0].status == "一面通过"
+
+
 def test_update_application_status_from_text_normalizes_rejected_alias(db_path):
     create_application(
         company="陕西某软件公司",
@@ -311,6 +352,7 @@ def test_update_application_status_from_text_normalizes_rejected_alias(db_path):
     )
     assert updated.status == "未通过"
     assert list_applications(db_path=db_path)[0].status == "未通过"
+
 
 def test_update_application_status_from_text_raises_when_company_missing(db_path):
     with pytest.raises(ValueError):

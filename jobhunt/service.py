@@ -410,3 +410,67 @@ def update_application_status_from_text(
         status=str(parsed.get("status") or ""),
         db_path=db_path,
     )
+
+
+def preview_status_update_from_text(
+    text: str,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> dict[str, object]:
+    """解析状态更新文本并返回保存前预览。
+
+    Args:
+        text: 用户输入的状态更新文本，例如“陕西某软件公司一面通过了。”。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        包含解析字段、匹配投递记录和 will_save=False 的结构化预览。
+    """
+    parsed = parse_status_update_text(text)
+    applications = find_applications_by_company(
+        str(parsed.get("company") or ""),
+        db_path=db_path,
+    )
+    matched_application = applications[0] if applications else None
+
+    # 状态更新同样遵循 preview -> confirm；预览阶段不写数据库。
+    return {
+        "action": "preview_status_update",
+        "parsed": parsed,
+        "matched_application": (
+            _matched_application_summary(matched_application)
+            if matched_application
+            else None
+        ),
+        "needs_application_match": matched_application is None,
+        "new_status": parsed.get("status"),
+        "will_save": False,
+    }
+
+
+def confirm_update_application_status(
+    preview: dict[str, object],
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> Application:
+    """根据状态更新预览确认写入投递状态。
+
+    Args:
+        preview: preview_status_update_from_text 返回的结构化预览。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        更新后的 Application 对象。
+
+    Raises:
+        ValueError: 当预览没有匹配投递记录时抛出。
+    """
+    parsed = _parsed_dict(preview)
+    matched = preview.get("matched_application")
+    if not isinstance(matched, dict) or matched.get("id") is None:
+        raise ValueError("状态更新未匹配到投递记录，无法确认保存")
+
+    # V1 简化策略延续 preview 的匹配结果；同公司多投递时后续版本再按岗位精确确认。
+    return update_application_status(
+        application_id=int(matched["id"]),
+        status=str(parsed.get("status") or ""),
+        db_path=db_path,
+    )
