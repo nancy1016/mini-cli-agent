@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 
+import jobhunt.parser
 from jobhunt.repository import (
     create_application,
     create_interview,
@@ -13,6 +15,7 @@ from jobhunt.repository import (
     list_interviews,
 )
 from tools import (
+    TOOL_SCHEMAS,
     TOOL_FUNCTIONS,
     jobhunt_list_applications,
     jobhunt_list_interviews,
@@ -37,6 +40,12 @@ def _load_json(text: str):
     return json.loads(text)
 
 
+class FixedToday(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 7, 11)
+
+
 def test_jobhunt_tools_are_registered():
     expected = {
         "jobhunt_preview_application",
@@ -54,6 +63,22 @@ def test_jobhunt_tools_are_registered():
     assert expected.issubset(set(TOOL_FUNCTIONS))
 
 
+def test_preview_tool_schemas_do_not_expose_base_date():
+    schemas = {
+        schema["function"]["name"]: schema["function"]
+        for schema in TOOL_SCHEMAS
+    }
+
+    application_properties = schemas["jobhunt_preview_application"]["parameters"][
+        "properties"
+    ]
+    interview_properties = schemas["jobhunt_preview_interview"]["parameters"][
+        "properties"
+    ]
+    assert "base_date" not in application_properties
+    assert "base_date" not in interview_properties
+
+
 def test_jobhunt_preview_application_returns_wrapped_json():
     result = jobhunt_preview_application(
         text="今天在官网投了西安某科技公司的测试开发岗，地点西安。",
@@ -65,6 +90,20 @@ def test_jobhunt_preview_application_returns_wrapped_json():
     assert data["data"]["action"] == "preview_application"
     assert data["data"]["parsed"]["company"] == "西安某科技公司"
     assert data["data"]["will_save"] is False
+
+
+def test_jobhunt_preview_interview_ignores_model_generated_base_date(monkeypatch):
+    monkeypatch.setattr(jobhunt.parser, "date", FixedToday)
+
+    result = _load_json(
+        jobhunt_preview_interview(
+            text="明天下午三点，西安吉利科技公司测试开发岗一面，电话通知的。",
+            base_date="2023-04-15",
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["parsed"]["interview_time"] == "2026-07-12 15:00"
 
 
 def test_jobhunt_save_application_unconfirmed_returns_error_and_does_not_write(db_path):

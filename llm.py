@@ -1,13 +1,15 @@
 """
 LM Studio 调用封装。
 
-本版本使用 LM Studio 的 OpenAI-compatible API，
-不再依赖 Ollama。
+本版本直接使用 Python 标准库调用 LM Studio 的 OpenAI-compatible API。
+这样可以避开 OpenAI SDK 与部分 LM Studio tools 请求的兼容性问题。
 """
 
 from __future__ import annotations
 
-from openai import OpenAI
+import json
+import urllib.error
+import urllib.request
 
 from config import (
     MODEL,
@@ -19,10 +21,37 @@ from config import (
 from tools import TOOL_SCHEMAS, run_tool_call
 
 
-client = OpenAI(
-    base_url=LM_STUDIO_BASE_URL,
-    api_key=LM_STUDIO_API_KEY,
-)
+def _post_chat_completion(payload: dict) -> dict:
+    """
+    向 LM Studio Local Server 发送 chat/completions 请求。
+
+    使用标准库 urllib，避免 SDK 对 tools/function calling 请求做额外转换。
+    """
+    url = LM_STUDIO_BASE_URL.rstrip("/") + "/chat/completions"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url=url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {LM_STUDIO_API_KEY}",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request) as response:
+            response_body = response.read().decode("utf-8")
+            return json.loads(response_body)
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"LM Studio HTTP 请求失败，状态码 {e.code}，返回内容：{error_body}"
+        ) from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"无法连接 LM Studio Local Server：{e.reason}") from e
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"LM Studio 返回了无法解析的 JSON：{e}") from e
 
 
 def build_messages(base_messages: list[dict], active_skill_content: str = "") -> list[dict]:
@@ -57,27 +86,29 @@ def remove_system_messages(messages: list[dict]) -> list[dict]:
     return [m for m in messages if m.get("role") != "system"]
 
 
-def normalize_assistant_message(message) -> dict:
+def normalize_assistant_message(message: dict) -> dict:
     """
-    把 OpenAI SDK 返回的 assistant message 转成普通 dict。
+    把 LM Studio 返回的 assistant message 转成普通 dict。
     重点是保留 tool_calls，后续发回 LM Studio 时需要它。
     """
     result = {
         "role": "assistant",
-        "content": message.content or "",
+        "content": message.get("content") or "",
     }
 
-    if message.tool_calls:
+    tool_calls = message.get("tool_calls") or []
+    if tool_calls:
         result["tool_calls"] = []
 
-        for tool_call in message.tool_calls:
+        for tool_call in tool_calls:
+            function = tool_call.get("function") or {}
             result["tool_calls"].append(
                 {
-                    "id": tool_call.id,
-                    "type": tool_call.type,
+                    "id": tool_call.get("id"),
+                    "type": tool_call.get("type", "function"),
                     "function": {
-                        "name": tool_call.function.name,
-                        "arguments": tool_call.function.arguments,
+                        "name": function.get("name"),
+                        "arguments": function.get("arguments") or "{}",
                     },
                 }
             )
@@ -89,14 +120,16 @@ def chat_once_with_tools(messages: list[dict]) -> dict:
     """
     单次调用 LM Studio，允许模型返回 tool_calls。
     """
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        tools=TOOL_SCHEMAS,
-        temperature=0.3,
-    )
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "tools": TOOL_SCHEMAS,
+        "tool_choice": "auto",
+        "temperature": 0.3,
+    }
+    result = _post_chat_completion(payload)
 
-    message = response.choices[0].message
+    message = result["choices"][0]["message"]
     return normalize_assistant_message(message)
 
 
@@ -104,17 +137,18 @@ def chat_once_without_tools(messages: list[dict]) -> dict:
     """
     不带工具的最终回答。
     """
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=messages,
-        temperature=0.3,
-    )
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "temperature": 0.3,
+    }
+    result = _post_chat_completion(payload)
 
-    message = response.choices[0].message
+    message = result["choices"][0]["message"]
 
     return {
         "role": "assistant",
-        "content": message.content or "",
+        "content": message.get("content") or "",
     }
 
 

@@ -175,10 +175,11 @@ def jobhunt_preview_application(
     base_date: str | None = None,
     **kwargs: Any,
 ) -> str:
+    # 运行时不信任模型生成的 base_date；相对日期统一由 parser 基于 date.today() 解析。
     return _jobhunt_success(
         preview_application_from_text(
             text=text,
-            base_date=_parse_tool_date(base_date),
+            base_date=None,
         )
     )
 
@@ -205,10 +206,11 @@ def jobhunt_preview_interview(
     db_path: str | None = None,
     **kwargs: Any,
 ) -> str:
+    # 运行时不信任模型生成的 base_date；相对日期统一由 parser 基于 date.today() 解析。
     return _jobhunt_success(
         preview_interview_from_text(
             text=text,
-            base_date=_parse_tool_date(base_date),
+            base_date=None,
             db_path=_tool_db_path(db_path, **kwargs),
         )
     )
@@ -358,10 +360,6 @@ JOBHUNT_TOOL_SCHEMAS = [
                         "type": "string",
                         "description": "用户描述投递记录的原始文本。",
                     },
-                    "base_date": {
-                        "type": "string",
-                        "description": "可选，YYYY-MM-DD，用于解析今天/明天等相对日期。",
-                    },
                 },
                 "required": ["text"],
             },
@@ -399,10 +397,6 @@ JOBHUNT_TOOL_SCHEMAS = [
                     "text": {
                         "type": "string",
                         "description": "用户描述面试通知的原始文本。",
-                    },
-                    "base_date": {
-                        "type": "string",
-                        "description": "可选，YYYY-MM-DD，用于解析今天/明天/下周等相对日期。",
                     },
                 },
                 "required": ["text"],

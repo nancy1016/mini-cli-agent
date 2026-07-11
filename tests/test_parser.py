@@ -92,6 +92,14 @@ def test_parse_interview_text_from_tomorrow():
     assert result["interview_time"] == "2026-06-21 15:00"
 
 
+def test_parse_interview_text_uses_explicit_base_date_for_tomorrow():
+    text = "明天下午三点，西安吉利科技公司测试开发岗一面，电话通知的。"
+
+    result = parse_interview_text(text, base_date=date(2026, 7, 11))
+
+    assert result["interview_time"] == "2026-07-12 15:00"
+
+
 def test_parse_status_update_passed_first_interview():
     result = parse_status_update_text("陕西某软件公司一面通过了。")
 
@@ -158,5 +166,4 @@ def test_parse_interview_text_supports_v1_time_expressions(text, expected_time):
     result = parse_interview_text(text, base_date=BASE_DATE)
 
     assert result["interview_time"] == expected_time
-
 

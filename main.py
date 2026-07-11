@@ -7,6 +7,7 @@ Mini CLI Agent 主程序。
 
 from __future__ import annotations
 
+import json
 import sys
 
 from rich.console import Console
@@ -21,10 +22,44 @@ from history import (
 )
 from llm import run_agent_turn
 from skills import list_skills, load_skill
-from tools import tool_names
+from tools import (
+    jobhunt_check_missing_info,
+    jobhunt_list_applications,
+    jobhunt_list_interviews,
+    jobhunt_save_application,
+    jobhunt_save_interview,
+    jobhunt_update_status,
+    tool_names,
+)
 
 
 console = Console()
+
+PREVIEW_ACTIONS = {
+    "preview_application",
+    "preview_interview",
+    "preview_status_update",
+}
+
+CONFIRM_KEYWORDS = (
+    "确认保存",
+    "请你保存",
+    "请保存",
+    "保存",
+    "确认更新",
+    "确认",
+    "是的",
+    "好的",
+    "可以",
+)
+
+EXPLICIT_SAVE_CONFIRM_KEYWORDS = (
+    "确认保存",
+    "请你保存",
+    "请保存",
+    "保存",
+    "确认更新",
+)
 
 
 def print_help() -> None:
@@ -113,6 +148,7 @@ def handle_command(
             data = load_session(index)
             state["session_id"] = data.get("session_id") or new_session_id()
             state["base_messages"] = data.get("messages", [])
+            state["pending_preview"] = None
 
             skill_name = data.get("active_skill_name")
             state["active_skill_name"] = None
@@ -162,12 +198,227 @@ def handle_command(
         console.print(f"[red]未知命令：{command}。输入 /help 查看帮助。[/red]")
 
 
+def _load_tool_json(content: str) -> dict | None:
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def update_pending_preview_from_messages(state: dict) -> None:
+    """
+    从最近的工具结果中记录待确认预览。
+    只记录 JobHunt preview 工具返回的 ok=true/data/action。
+    """
+    for message in reversed(state.get("base_messages", [])):
+        if message.get("role") != "tool":
+            continue
+
+        data = _load_tool_json(message.get("content", ""))
+        if not data or data.get("ok") is not True:
+            continue
+
+        preview = data.get("data")
+        if isinstance(preview, dict) and preview.get("action") in PREVIEW_ACTIONS:
+            state["pending_preview"] = preview
+            return
+
+
+def is_confirm_input(user_input: str) -> bool:
+    compact = user_input.strip().replace("，", "").replace("。", "")
+    return any(keyword in compact for keyword in CONFIRM_KEYWORDS)
+
+
+def is_explicit_save_confirm_input(user_input: str) -> bool:
+    compact = user_input.strip().replace("，", "").replace("。", "")
+    return any(keyword in compact for keyword in EXPLICIT_SAVE_CONFIRM_KEYWORDS)
+
+
+def detect_fixed_query(user_input: str) -> tuple[str, dict] | None:
+    text = user_input.strip()
+
+    if any(keyword in text for keyword in ("哪些信息没填完整", "缺失信息", "待补充")):
+        return "jobhunt_check_missing_info", {}
+    if "今天" in text and "面试" in text:
+        return "jobhunt_list_interviews", {"range": "today"}
+    if "明天" in text and "面试" in text:
+        return "jobhunt_list_interviews", {"range": "tomorrow"}
+    if any(keyword in text for keyword in ("未来三天有哪些面试", "近三天有哪些面试")):
+        return "jobhunt_list_interviews", {"range": "next_three_days"}
+    if "本周" in text and "面试" in text:
+        return "jobhunt_list_interviews", {"range": "this_week"}
+    if any(keyword in text for keyword in ("我现在投了哪些公司", "投递记录", "已投递", "求职台账")):
+        return "jobhunt_list_applications", {}
+
+    return None
+
+
+def _tool_result_dict(result_text: str) -> dict:
+    data = json.loads(result_text)
+    if not isinstance(data, dict):
+        raise ValueError("工具返回结果不是 JSON 对象")
+    return data
+
+
+def _format_application(item: dict) -> str:
+    return (
+        f"- {item.get('company', '-')}"
+        f" | {item.get('position', '-')}"
+        f" | 状态：{item.get('status', '-')}"
+    )
+
+
+def _format_interview(item: dict) -> str:
+    return (
+        f"- {item.get('company', '-')}"
+        f" | {item.get('position', '-')}"
+        f" | {item.get('stage', '-')}"
+        f" | {item.get('interview_time', '-')}"
+    )
+
+
+def format_jobhunt_result(result: dict) -> str:
+    """
+    将 JobHunt 工具统一 JSON 包装结果转成简洁中文。
+    """
+    if result.get("ok") is not True:
+        return f"操作失败：{result.get('error', '未知错误')}"
+
+    data = result.get("data") or {}
+    if not isinstance(data, dict):
+        return str(data)
+
+    if data.get("saved") and "application" in data and "interview" not in data:
+        application = data["application"]
+        return f"已保存投递：{application.get('company')}，{application.get('position')}。"
+
+    if data.get("saved") and "interview" in data:
+        interview = data["interview"]
+        status = data.get("updated_status")
+        suffix = f"；投递状态已更新为：{status}" if status else ""
+        return (
+            f"已保存面试：{interview.get('company')}，"
+            f"{interview.get('stage')}，{interview.get('interview_time')}{suffix}。"
+        )
+
+    if data.get("updated") and "application" in data:
+        application = data["application"]
+        return f"已更新状态：{application.get('company')} -> {application.get('status')}。"
+
+    if "applications" in data:
+        applications = data.get("applications") or []
+        if not applications:
+            return "当前还没有投递记录。"
+        return "当前投递记录：\n" + "\n".join(
+            _format_application(item) for item in applications
+        )
+
+    if "interviews" in data:
+        interviews = data.get("interviews") or []
+        if not interviews:
+            return "该范围内没有面试记录。"
+        return "面试记录：\n" + "\n".join(_format_interview(item) for item in interviews)
+
+    if "missing_info" in data:
+        return "缺失信息检查结果：\n" + json.dumps(
+            data["missing_info"],
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def save_direct_turn(state: dict, user_input: str, assistant_text: str) -> None:
+    state["base_messages"].append({"role": "user", "content": user_input})
+    state["base_messages"].append({"role": "assistant", "content": assistant_text})
+    save_session(
+        state["session_id"],
+        MODEL,
+        state["base_messages"],
+        state.get("active_skill_name"),
+    )
+
+
+def handle_pending_confirmation(user_input: str, state: dict) -> bool:
+    preview = state.get("pending_preview")
+    if not preview:
+        if not is_explicit_save_confirm_input(user_input):
+            return False
+        message = "当前没有待确认的预览，请先输入投递/面试/状态信息。"
+        console.print(f"\nAgent:\n{message}")
+        save_direct_turn(state, user_input, message)
+        return True
+
+    if not is_confirm_input(user_input):
+        return False
+
+    action = preview.get("action")
+    try:
+        if action == "preview_application":
+            result = _tool_result_dict(
+                jobhunt_save_application(preview=preview, confirmed=True)
+            )
+        elif action == "preview_interview":
+            result = _tool_result_dict(
+                jobhunt_save_interview(
+                    preview=preview,
+                    confirmed=True,
+                    create_application_if_missing=bool(
+                        preview.get("needs_application_creation")
+                    ),
+                )
+            )
+        elif action == "preview_status_update":
+            result = _tool_result_dict(
+                jobhunt_update_status(preview=preview, confirmed=True)
+            )
+        else:
+            result = {"ok": False, "error": f"不支持的待确认预览类型：{action}"}
+    except Exception as e:
+        result = {"ok": False, "error": f"确认操作失败：{e}"}
+
+    message = format_jobhunt_result(result)
+    if result.get("ok") is True:
+        state["pending_preview"] = None
+
+    console.print(f"\nAgent:\n{message}")
+    save_direct_turn(state, user_input, message)
+    return True
+
+
+def handle_fixed_query(user_input: str, state: dict) -> bool:
+    query = detect_fixed_query(user_input)
+    if query is None:
+        return False
+
+    name, arguments = query
+    try:
+        if name == "jobhunt_list_applications":
+            result = _tool_result_dict(jobhunt_list_applications())
+        elif name == "jobhunt_list_interviews":
+            result = _tool_result_dict(jobhunt_list_interviews(**arguments))
+        elif name == "jobhunt_check_missing_info":
+            result = _tool_result_dict(jobhunt_check_missing_info())
+        else:
+            result = {"ok": False, "error": f"不支持的固定查询：{name}"}
+    except Exception as e:
+        result = {"ok": False, "error": f"查询失败：{e}"}
+
+    message = format_jobhunt_result(result)
+    console.print(f"\nAgent:\n{message}")
+    save_direct_turn(state, user_input, message)
+    return True
+
+
 def main() -> None:
     state = {
         "session_id": new_session_id(),
         "base_messages": [],
         "active_skill_name": None,
         "active_skill_content": "",
+        "pending_preview": None,
         "debug": False,
     }
 
@@ -198,6 +449,12 @@ def main() -> None:
             handle_command(user_input, state)
             continue
 
+        if handle_pending_confirmation(user_input, state):
+            continue
+
+        if handle_fixed_query(user_input, state):
+            continue
+
         state["base_messages"].append(
             {
                 "role": "user",
@@ -211,6 +468,7 @@ def main() -> None:
                 state.get("active_skill_content", ""),
                 debug=state.get("debug", False),
             )
+            update_pending_preview_from_messages(state)
 
             save_session(
                 state["session_id"],
