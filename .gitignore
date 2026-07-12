@@ -1,5 +1,6 @@
 # Python cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.pyc
@@ -22,6 +23,15 @@ conda-env/
 
 # Logs
 *.log
+*_output.txt
+main_debug.txt
+llm_output.txt
+sdk_tool_test.py
+sdk_tool_test_output.txt
+commit_message.txt
+
+# Runtime generated data
+data/*.db
 
 # Runtime generated history
 history/*.json
@@ -32,3 +42,6 @@ history/*.json
 # OS files
 .DS_Store
 Thumbs.db
+
+# Test cache
+.pytest_cache/
