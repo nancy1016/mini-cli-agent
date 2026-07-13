@@ -70,6 +70,19 @@ def list_interviews_next_three_days(
     )
 
 
+def list_interviews_next_thirty_days(
+    today: date | None = None,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Interview]:
+    """查询未来 30 天的面试，包含今天和第 30 天当天。"""
+    current_day = _resolve_today(today)
+    return _list_interviews_in_range(
+        current_day,
+        current_day + timedelta(days=30),
+        db_path,
+    )
+
+
 def list_interviews_this_week(
     today: date | None = None,
     db_path: DbPath = DEFAULT_DB_PATH,

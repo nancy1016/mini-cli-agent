@@ -22,5 +22,6 @@
 - 新增面试：先调用 `jobhunt_preview_interview`，展示匹配投递和缺失信息后等待用户确认，再调用 `jobhunt_save_interview`。
 - 更新状态：先调用 `jobhunt_preview_status_update`，展示匹配记录和目标状态后等待用户确认，再调用 `jobhunt_update_status`。
 - 查询投递列表：调用 `jobhunt_list_applications`。
-- 查询面试：调用 `jobhunt_list_interviews`，通过 `range` 指定 `all`、`today`、`tomorrow`、`next_three_days` 或 `this_week`。
+- 查询面试：调用 `jobhunt_list_interviews`，通过 `range` 指定 `all`、`today`、`tomorrow`、`next_three_days`、`next_thirty_days` 或 `this_week`。
+  - `next_thirty_days` 表示未来 30 天 / 未来一个月面试。
 - 检查缺失信息：调用 `jobhunt_check_missing_info`。

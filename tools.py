@@ -26,6 +26,7 @@ from jobhunt.service import (
     confirm_create_interview,
     confirm_update_application_status,
     get_next_three_days_interviews,
+    get_next_thirty_days_interviews,
     get_today_interviews,
     get_tomorrow_interviews,
     get_weekly_interviews,
@@ -287,6 +288,8 @@ def jobhunt_list_interviews(
         interviews = get_tomorrow_interviews(today=current_day, db_path=db)
     elif range == "next_three_days":
         interviews = get_next_three_days_interviews(today=current_day, db_path=db)
+    elif range == "next_thirty_days":
+        interviews = get_next_thirty_days_interviews(today=current_day, db_path=db)
     elif range == "this_week":
         interviews = get_weekly_interviews(today=current_day, db_path=db)
     else:
@@ -488,12 +491,12 @@ JOBHUNT_TOOL_SCHEMAS = [
                 "properties": {
                     "range": {
                         "type": "string",
-                        "enum": ["all", "today", "tomorrow", "next_three_days", "this_week"],
-                        "description": "查询范围：all 全部，today 今天，tomorrow 明天，next_three_days 未来三天，this_week 本周。",
+                        "enum": ["all", "today", "tomorrow", "next_three_days", "next_thirty_days", "this_week"],
+                        "description": "查询范围：all 全部，today 今天，tomorrow 明天，next_three_days 未来三天，next_thirty_days 未来30天，this_week 本周。",
                     },
                     "today": {
                         "type": "string",
-                        "description": "可选，YYYY-MM-DD，作为 today/tomorrow/next_three_days/this_week 的查询基准日。",
+                        "description": "可选，YYYY-MM-DD，作为 today/tomorrow/next_three_days/next_thirty_days/this_week 的查询基准日。",
                     },
                 },
                 "required": ["range"],

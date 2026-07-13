@@ -134,8 +134,43 @@ def _extract_interview_method(text: str) -> str:
     return _DEFAULT_VALUE
 
 
+def _resolve_absolute_interview_date(text: str, base_date: date) -> date | None:
+    """优先解析文本中的明确日期，支持年月日、横杠、斜杠和无年份月日。"""
+    full_date = re.search(
+        r"(?P<year>\d{4})\s*(?:年|-|/)\s*"
+        r"(?P<month>\d{1,2})\s*(?:月|-|/)\s*"
+        r"(?P<day>\d{1,2})\s*日?",
+        text,
+    )
+    if full_date:
+        return date(
+            int(full_date.group("year")),
+            int(full_date.group("month")),
+            int(full_date.group("day")),
+        )
+
+    month_day = re.search(
+        r"(?<!\d)(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*日",
+        text,
+    )
+    if month_day:
+        return date(
+            base_date.year,
+            int(month_day.group("month")),
+            int(month_day.group("day")),
+        )
+
+    return None
+
+
 def _resolve_interview_date(text: str, base_date: date) -> date:
-    """将今天、明天、下周几和周几换算为确定日期。"""
+    """将今天、明天、后天、下周几和周几换算为确定日期。"""
+    absolute_date = _resolve_absolute_interview_date(text, base_date)
+    if absolute_date is not None:
+        return absolute_date
+
+    if "后天" in text:
+        return base_date + timedelta(days=2)
     if "明天" in text:
         return base_date + timedelta(days=1)
     if "今天" in text:
@@ -159,14 +194,17 @@ def _extract_interview_time(text: str, base_date: date | None) -> str:
     """解析 V1 支持的相对日期与中文整点时间。"""
     target_date = _resolve_interview_date(text, _reference_date(base_date))
     time_match = re.search(
-        r"(?P<period>上午|下午)(?P<hour>十二|十一|十|[一二两三四五六七八九])点",
+        r"(?P<period>上午|下午|晚上)"
+        r"(?P<hour>\d{1,2}|十二|十一|十|[一二两三四五六七八九])点",
         text,
     )
     if not time_match:
-        return f"{target_date.isoformat()} 00:00"
+        # 无法可靠解析具体时间时保持缺失，避免伪造成当天 00:00 后被误保存。
+        return _DEFAULT_VALUE
 
-    hour = _CHINESE_HOURS[time_match.group("hour")]
-    if time_match.group("period") == "下午" and hour < 12:
+    raw_hour = time_match.group("hour")
+    hour = int(raw_hour) if raw_hour.isdigit() else _CHINESE_HOURS[raw_hour]
+    if time_match.group("period") in {"下午", "晚上"} and hour < 12:
         hour += 12
     return datetime.combine(target_date, datetime.min.time()).replace(
         hour=hour

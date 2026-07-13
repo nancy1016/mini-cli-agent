@@ -4,6 +4,7 @@ import pytest
 
 from jobhunt.reminders import (
     list_interviews_next_three_days,
+    list_interviews_next_thirty_days,
     list_interviews_this_month,
     list_interviews_this_week,
     list_interviews_today,
@@ -81,6 +82,20 @@ def test_list_interviews_next_three_days_includes_today_tomorrow_and_day_after(
     interviews = list_interviews_next_three_days(today=today, db_path=db_path)
 
     assert interviews == [first, second, third]
+
+
+def test_list_interviews_next_thirty_days_includes_day_30_and_excludes_later(
+    db_path,
+    application,
+):
+    today = date(2026, 7, 12)
+    inside = add_interview(db_path, application, "2026-08-01 10:00", "一面")
+    day_30 = add_interview(db_path, application, "2026-08-11 10:00", "二面")
+    add_interview(db_path, application, "2026-08-12 10:00", "三面")
+
+    interviews = list_interviews_next_thirty_days(today=today, db_path=db_path)
+
+    assert interviews == [inside, day_30]
 
 
 def test_list_interviews_this_week_uses_iso_week(db_path, application):

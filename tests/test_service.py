@@ -16,6 +16,7 @@ from jobhunt.service import (
     confirm_create_application,
     confirm_create_interview,
     get_next_three_days_interviews,
+    get_next_thirty_days_interviews,
     get_today_interviews,
     get_tomorrow_interviews,
     get_weekly_interviews,
@@ -94,6 +95,22 @@ def test_preview_interview_matches_existing_application(db_path):
     assert preview["needs_application_creation"] is False
 
 
+def test_preview_interview_fills_missing_position_from_matched_application(db_path):
+    create_application(
+        company="西安吉利科技公司",
+        position="测试开发",
+        db_path=db_path,
+    )
+
+    preview = preview_interview_from_text(
+        "西安吉利科技公司后天下午4点二面",
+        base_date=date(2026, 7, 12),
+        db_path=db_path,
+    )
+
+    assert preview["parsed"]["position"] == "测试开发"
+
+
 def test_confirm_create_interview_uses_matched_application_id(db_path):
     application = create_application(
         company="西安某科技公司",
@@ -141,6 +158,65 @@ def test_confirm_create_interview_saves_interview_and_updates_status(db_path):
     assert interviews[0].stage == "一面"
     assert applications[0].status == "一面待进行"
     assert result["updated_status"] == "一面待进行"
+
+
+def test_confirm_create_interview_preserves_previewed_interview_time(db_path):
+    create_application(
+        company="西安吉利科技公司",
+        position="测试开发",
+        db_path=db_path,
+    )
+    preview = preview_interview_from_text(
+        "西安吉利科技公司后天下午4点二面",
+        base_date=date(2026, 7, 12),
+        db_path=db_path,
+    )
+
+    result = confirm_create_interview(preview, db_path=db_path)
+
+    interviews = list_interviews(db_path=db_path)
+    applications = list_applications(db_path=db_path)
+    assert preview["parsed"]["interview_time"] == "2026-07-14 16:00"
+    assert result["interview"].interview_time == "2026-07-14 16:00"
+    assert interviews[0].interview_time == "2026-07-14 16:00"
+    assert applications[0].status == "二面待进行"
+
+
+def test_confirm_create_interview_fills_missing_position_from_matched_application(db_path):
+    create_application(
+        company="西安吉利科技公司",
+        position="测试开发",
+        db_path=db_path,
+    )
+    preview = preview_interview_from_text(
+        "西安吉利科技公司后天下午4点二面",
+        base_date=date(2026, 7, 12),
+        db_path=db_path,
+    )
+
+    result = confirm_create_interview(preview, db_path=db_path)
+
+    assert result["interview"].position == "测试开发"
+    assert list_interviews(db_path=db_path)[0].position == "测试开发"
+
+
+def test_interview_position_uses_full_matched_application_position(db_path):
+    create_application(
+        company="上海百胜软件公司",
+        position="软件开发",
+        db_path=db_path,
+    )
+
+    preview = preview_interview_from_text(
+        "2026年7月18日下午5点，上海百胜软件公司开发岗要一面。",
+        base_date=date(2026, 7, 12),
+        db_path=db_path,
+    )
+    result = confirm_create_interview(preview, db_path=db_path)
+
+    assert preview["parsed"]["position"] == "软件开发"
+    assert result["interview"].position == "软件开发"
+    assert result["interview"].interview_time == "2026-07-18 17:00"
 
 
 def test_confirm_create_interview_can_create_missing_application(db_path):
@@ -237,6 +313,22 @@ def test_get_next_three_days_interviews_includes_today_tomorrow_and_day_after(
     interviews = get_next_three_days_interviews(today=BASE_DATE, db_path=db_path)
 
     assert interviews == [first, second, third]
+
+
+def test_get_next_thirty_days_interviews_includes_day_30_and_excludes_later(db_path):
+    application = create_application(
+        company="陕西某软件公司",
+        position="软件测试",
+        db_path=db_path,
+    )
+    today = date(2026, 7, 12)
+    inside = add_interview(db_path, application, "2026-08-01 10:00", "一面")
+    day_30 = add_interview(db_path, application, "2026-08-11 10:00", "二面")
+    add_interview(db_path, application, "2026-08-12 10:00", "三面")
+
+    interviews = get_next_thirty_days_interviews(today=today, db_path=db_path)
+
+    assert interviews == [inside, day_30]
 
 
 def test_get_weekly_interviews_uses_iso_week(db_path):

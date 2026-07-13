@@ -79,6 +79,18 @@ def test_preview_tool_schemas_do_not_expose_base_date():
     assert "base_date" not in interview_properties
 
 
+def test_list_interviews_schema_includes_next_thirty_days_range():
+    schemas = {
+        schema["function"]["name"]: schema["function"]
+        for schema in TOOL_SCHEMAS
+    }
+    range_schema = schemas["jobhunt_list_interviews"]["parameters"]["properties"][
+        "range"
+    ]
+
+    assert "next_thirty_days" in range_schema["enum"]
+
+
 def test_jobhunt_preview_application_returns_wrapped_json():
     result = jobhunt_preview_application(
         text="今天在官网投了西安某科技公司的测试开发岗，地点西安。",
@@ -237,6 +249,42 @@ def test_jobhunt_list_interviews_uses_unified_range_parameter(db_path):
     ]
 
 
+def test_jobhunt_list_interviews_supports_next_thirty_days(db_path):
+    application = create_application(
+        company="陕西某软件公司",
+        position="软件测试",
+        db_path=db_path,
+    )
+    inside = create_interview(
+        application_id=application.id,
+        company=application.company,
+        position=application.position,
+        stage="一面",
+        interview_time="2026-08-01 10:00",
+        db_path=db_path,
+    )
+    create_interview(
+        application_id=application.id,
+        company=application.company,
+        position=application.position,
+        stage="二面",
+        interview_time="2026-08-12 10:00",
+        db_path=db_path,
+    )
+
+    result = _load_json(
+        jobhunt_list_interviews(
+            range="next_thirty_days",
+            today="2026-07-12",
+            db_path=str(db_path),
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["range"] == "next_thirty_days"
+    assert [item["id"] for item in result["data"]["interviews"]] == [inside.id]
+
+
 def test_jobhunt_list_interviews_unknown_range_returns_error(db_path):
     result = _load_json(
         jobhunt_list_interviews(
@@ -278,6 +326,34 @@ def test_jobhunt_update_status_requires_preview_and_confirmation(db_path):
     assert updated["data"]["updated"] is True
     assert updated["data"]["application"]["status"] == "一面通过"
     assert list_applications(db_path=db_path)[0].status == "一面通过"
+
+
+def test_jobhunt_save_interview_unconfirmed_returns_error_and_does_not_write(db_path):
+    create_application(
+        company="西安某科技公司",
+        position="测试开发",
+        db_path=db_path,
+    )
+    preview = _load_json(
+        jobhunt_preview_interview(
+            text="明天下午三点，西安某科技公司测试开发岗一面，电话通知的。",
+            base_date="2026-06-20",
+            db_path=str(db_path),
+        )
+    )
+
+    result = _load_json(
+        jobhunt_save_interview(
+            preview=preview["data"],
+            confirmed=False,
+            db_path=str(db_path),
+        )
+    )
+
+    assert result["ok"] is False
+    assert "error" in result
+    assert list_interviews(db_path=db_path) == []
+    assert list_applications(db_path=db_path)[0].status == "已投递"
 
 
 def test_jobhunt_save_interview_confirmed_saves_and_updates_status(db_path):

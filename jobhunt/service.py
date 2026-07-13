@@ -23,6 +23,7 @@ from jobhunt.parser import (
 )
 from jobhunt.reminders import (
     list_interviews_next_three_days,
+    list_interviews_next_thirty_days,
     list_interviews_this_week,
     list_interviews_today,
     list_interviews_tomorrow,
@@ -83,6 +84,14 @@ def _optional_text(value: object) -> str | None:
     return str(value)
 
 
+def _is_blank_business_value(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() in {"", "待补充"}
+    return False
+
+
 def _matched_application_summary(application: Application) -> dict[str, object]:
     return {
         "id": application.id,
@@ -133,6 +142,31 @@ def _parsed_dict(preview: dict[str, object]) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ValueError("preview 中缺少 parsed 字段")
     return parsed
+
+
+def _fill_interview_position_from_application(
+    parsed: dict[str, object],
+    application: Application | None,
+) -> dict[str, object]:
+    if application is None:
+        return parsed
+
+    parsed_position = parsed.get("position")
+    application_position = application.position
+    should_fill = _is_blank_business_value(parsed_position)
+    if not should_fill and isinstance(parsed_position, str):
+        parsed_position = parsed_position.strip()
+        should_fill = (
+            parsed_position != application_position
+            and parsed_position in application_position
+        )
+
+    if not should_fill:
+        return parsed
+
+    filled = dict(parsed)
+    filled["position"] = application_position
+    return filled
 
 
 def _status_from_stage(stage: object) -> str | None:
@@ -201,9 +235,10 @@ def preview_interview_from_text(
         包含解析字段、匹配投递记录、缺失信息和 will_save=False 的预览。
     """
     parsed = parse_interview_text(text, base_date=base_date)
-    interview = _interview_preview_object(parsed)
     applications = find_applications_by_company(str(parsed.get("company") or ""), db_path=db_path)
     matched_application = applications[0] if applications else None
+    parsed = _fill_interview_position_from_application(parsed, matched_application)
+    interview = _interview_preview_object(parsed)
 
     # 找不到对应投递时，只返回提示信息；是否补建投递必须留给用户确认。
     return {
@@ -237,6 +272,7 @@ def confirm_create_interview(
     """
     parsed = _parsed_dict(preview)
     application = _find_application_by_preview(preview, db_path=db_path)
+    parsed = _fill_interview_position_from_application(parsed, application)
 
     if application is None:
         if not create_application_if_missing:
@@ -339,6 +375,22 @@ def get_next_three_days_interviews(
     """
     # 未来三天的边界统一由 reminders 维护，service 只表达业务意图。
     return list_interviews_next_three_days(today=today, db_path=db_path)
+
+
+def get_next_thirty_days_interviews(
+    today: date | None = None,
+    db_path: DbPath = DEFAULT_DB_PATH,
+) -> list[Interview]:
+    """查询未来 30 天的面试记录。
+
+    Args:
+        today: 查询基准日；未传入时由 reminders 使用系统日期。
+        db_path: SQLite 数据库路径。
+
+    Returns:
+        从今天开始到未来第 30 天当天的 Interview 列表。
+    """
+    return list_interviews_next_thirty_days(today=today, db_path=db_path)
 
 
 def get_weekly_interviews(

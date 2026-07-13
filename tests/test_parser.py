@@ -100,6 +100,60 @@ def test_parse_interview_text_uses_explicit_base_date_for_tomorrow():
     assert result["interview_time"] == "2026-07-12 15:00"
 
 
+def test_parse_interview_text_supports_day_after_tomorrow_and_digit_hour():
+    result = parse_interview_text(
+        "西安吉利科技公司后天下午4点二面",
+        base_date=date(2026, 7, 12),
+    )
+
+    assert result["company"] == "西安吉利科技公司"
+    assert result["stage"] == "二面"
+    assert result["interview_time"] == "2026-07-14 16:00"
+
+
+def test_parse_interview_text_supports_tomorrow_from_july_base_date():
+    result = parse_interview_text(
+        "明天下午三点，西安吉利科技公司测试开发岗一面，电话通知的。",
+        base_date=date(2026, 7, 12),
+    )
+
+    assert result["interview_time"] == "2026-07-13 15:00"
+
+
+def test_parse_interview_text_supports_absolute_chinese_date():
+    result = parse_interview_text(
+        "2026年7月18日下午5点，上海百胜软件公司开发岗要一面。",
+        base_date=date(2026, 7, 12),
+    )
+
+    assert result["company"] == "上海百胜软件公司"
+    assert result["stage"] == "一面"
+    assert result["interview_time"] == "2026-07-18 17:00"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "2026-07-18 下午5点，上海百胜软件公司开发岗一面。",
+        "2026/07/18 下午5点，上海百胜软件公司开发岗一面。",
+        "7月18日下午5点，上海百胜软件公司开发岗一面。",
+    ],
+)
+def test_parse_interview_text_supports_absolute_date_variants(text):
+    result = parse_interview_text(text, base_date=date(2026, 7, 12))
+
+    assert result["interview_time"] == "2026-07-18 17:00"
+
+
+def test_parse_interview_text_supports_evening_digit_hour():
+    result = parse_interview_text(
+        "明天晚上7点，西安吉利科技公司测试开发岗一面。",
+        base_date=date(2026, 7, 12),
+    )
+
+    assert result["interview_time"] == "2026-07-13 19:00"
+
+
 def test_parse_status_update_passed_first_interview():
     result = parse_status_update_text("陕西某软件公司一面通过了。")
 
@@ -166,4 +220,3 @@ def test_parse_interview_text_supports_v1_time_expressions(text, expected_time):
     result = parse_interview_text(text, base_date=BASE_DATE)
 
     assert result["interview_time"] == expected_time
-
