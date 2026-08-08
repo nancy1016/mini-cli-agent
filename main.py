@@ -302,7 +302,7 @@ def detect_fixed_query(user_input: str) -> tuple[str, dict] | None:
     text = user_input.strip()
     compact_text = text.replace(" ", "")
 
-    if any(keyword in text for keyword in ("哪些信息没填完整", "缺失信息", "待补充")):
+    if any(keyword in text for keyword in ("哪些信息没填完整", "没填完整", "缺失信息", "待补充")):
         return "jobhunt_check_missing_info", {}
     if any(
         keyword in text
