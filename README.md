@@ -40,16 +40,24 @@ The project uses LM Studio as the local model entry point and keeps job-hunting 
 
 ## Setup
 
-1. 启动 LM Studio Local Server。
-2. 加载支持 tool use 的模型。
-3. 设置环境变量，PowerShell 示例：
+1. 使用 Python 3.12 创建并激活项目虚拟环境：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+2. 启动 LM Studio Local Server。
+3. 加载支持 tool use 的模型。
+4. 设置环境变量，PowerShell 示例：
 
 ```powershell
 $env:MINI_AGENT_MODEL="qwen2.5-7b-instruct"
 $env:LM_STUDIO_BASE_URL="http://127.0.0.1:1234/v1"
 ```
 
-4. 运行：
+5. 运行：
 
 ```powershell
 python main.py
@@ -68,18 +76,42 @@ python main.py
 
 ## Tests
 
+安装开发和测试依赖：
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
+
+默认回归测试不需要启动 LM Studio，也不会读写正式求职数据库：
+
 ```powershell
 python -m pytest
 ```
 
-当前测试结果：
+V1 冻结时的测试结果（Python 3.12）：
 
 ```text
-67 passed
+109 passed, 7 skipped
+```
+
+默认跳过的 7 项是需要真实 LM Studio、已加载模型和工具调用能力的可选冒烟测试。配置模型后可显式运行：
+
+```powershell
+$env:RUN_LMSTUDIO_E2E="1"
+$env:MINI_AGENT_MODEL="qwen2.5-7b-instruct"
+$env:LM_STUDIO_BASE_URL="http://127.0.0.1:1234/v1"
+python -m pytest tests/test_lmstudio_jobhunt_smoke.py -q
+```
+
+较长的双公司完整流程还需要设置：
+
+```powershell
+$env:RUN_LMSTUDIO_FULL_E2E="1"
 ```
 
 ## Notes
 
 - 本项目默认使用本地 SQLite，数据文件不会提交到仓库。
+- 默认测试使用 pytest 提供的临时目录和临时数据库，不会污染 `data/jobhunt.db`。
 - LM Studio 中的模型名需要与 `MINI_AGENT_MODEL` 保持一致。
 - 写库操作采用“预览 -> 确认 -> 保存”流程。
