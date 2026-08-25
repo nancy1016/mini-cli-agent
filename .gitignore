@@ -46,3 +46,9 @@ Thumbs.db
 # Test cache
 .pytest_cache/
 .tmp/
+
+# Frontend dependencies
+frontend/node_modules/
+
+# Frontend build output
+frontend/dist/

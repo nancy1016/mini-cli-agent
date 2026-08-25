@@ -109,6 +109,25 @@ python -m pytest tests/test_lmstudio_jobhunt_smoke.py -q
 $env:RUN_LMSTUDIO_FULL_E2E="1"
 ```
 
+## V2 Web MVP
+
+V2-01A 增加了 FastAPI + React Web 主体骨架，并继续只读复用现有 SQLite 数据。安装新增后端依赖后，在项目根目录启动 API：
+
+```powershell
+python -m pip install -r requirements.txt
+python -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+前端需要单独安装依赖并启动：
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`，API 文档位于 `http://127.0.0.1:8000/docs`。完整范围与启动说明见 `docs/v2-01a-web-mvp.md`。
+
 ## Notes
 
 - 本项目默认使用本地 SQLite，数据文件不会提交到仓库。
