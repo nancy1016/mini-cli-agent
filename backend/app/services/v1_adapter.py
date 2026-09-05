@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
+import re
+from typing import Any
 
 from backend.app.core.config import resolve_database_path
 from jobhunt.models import Application, Interview
-from jobhunt.repository import list_applications, list_interviews
+from jobhunt.repository import (
+    find_applications_by_company,
+    list_applications,
+    list_interviews,
+)
 from jobhunt.service import (
     check_missing_info,
+    confirm_create_application,
+    confirm_create_interview,
+    confirm_update_application_status,
     get_next_thirty_days_interviews,
     get_next_three_days_interviews,
     get_today_interviews,
     get_tomorrow_interviews,
     get_weekly_interviews,
+    preview_application_from_text,
+    preview_interview_from_text,
+    preview_status_update_from_text,
 )
 
 
@@ -97,13 +110,14 @@ def list_application_rows(
 def list_interview_rows(
     range_name: str = "next_three_days",
     db_path: DbPath | None = None,
+    base_date: date | None = None,
 ) -> list[dict[str, object]]:
     """按 V1 已支持的时间范围读取面试记录。"""
     handler = INTERVIEW_RANGE_HANDLERS.get(range_name)
     if handler is None:
         supported = ", ".join(INTERVIEW_RANGE_HANDLERS)
         raise ValueError(f"unsupported interview range: {range_name}; supported: {supported}")
-    interviews = handler(db_path=_db_path(db_path))
+    interviews = handler(today=base_date, db_path=_db_path(db_path))
     return [_interview_row(interview) for interview in interviews]
 
 
@@ -173,3 +187,134 @@ def get_dashboard_summary(db_path: DbPath | None = None) -> dict[str, object]:
         "recent_applications": [_application_row(item) for item in recent_applications],
         "upcoming_interviews": [_interview_row(item) for item in next_thirty_days[:5]],
     }
+
+
+def _require_preview_action(preview: dict[str, object], expected: str) -> None:
+    if preview.get("action") != expected:
+        raise ValueError(f"预览类型不匹配，期望 {expected}")
+
+
+def _candidate_rows(applications: list[Application]) -> list[dict[str, object]]:
+    return [_application_row(application) for application in applications]
+
+
+def preview_application(
+    text: str,
+    db_path: DbPath | None = None,
+    base_date: date | None = None,
+) -> dict[str, object]:
+    """调用 V1 生成投递预览；db_path 保留统一的 Web Adapter 签名。"""
+    del db_path
+    return preview_application_from_text(text=text, base_date=base_date)
+
+
+def confirm_application(
+    preview: dict[str, object],
+    db_path: DbPath | None = None,
+) -> dict[str, object]:
+    _require_preview_action(preview, "preview_application")
+    return _application_row(
+        confirm_create_application(preview=preview, db_path=_db_path(db_path))
+    )
+
+
+def preview_interview(
+    text: str,
+    db_path: DbPath | None = None,
+    base_date: date | None = None,
+) -> dict[str, object]:
+    path = _db_path(db_path)
+    preview = preview_interview_from_text(text=text, base_date=base_date, db_path=path)
+    parsed = preview.get("parsed")
+    company = str(parsed.get("company") or "") if isinstance(parsed, dict) else ""
+    matches = find_applications_by_company(company, db_path=path) if company else []
+    result = dict(preview)
+    result["candidates"] = _candidate_rows(matches)
+    result["requires_clarification"] = len(matches) > 1
+    if len(matches) > 1:
+        result["matched_application"] = None
+    return result
+
+
+def confirm_interview(
+    preview: dict[str, object],
+    db_path: DbPath | None = None,
+) -> dict[str, object]:
+    _require_preview_action(preview, "preview_interview")
+    if preview.get("requires_clarification"):
+        raise ValueError("同一公司存在多条投递记录，请先明确岗位")
+    if preview.get("needs_application_creation"):
+        raise ValueError("面试未匹配到投递记录，请先创建投递或补充公司信息")
+    result = confirm_create_interview(
+        preview=preview,
+        create_application_if_missing=False,
+        db_path=_db_path(db_path),
+    )
+    return {str(key): _to_jsonable(value) for key, value in result.items()}
+
+
+def preview_status_update(
+    text: str,
+    db_path: DbPath | None = None,
+) -> dict[str, object]:
+    path = _db_path(db_path)
+    # V1 支持“已放弃”，Web 输入中的常见口语“放弃了”在适配层归一化后再复用 V1。
+    normalized_text = text.replace("放弃了", "已放弃")
+    preview = preview_status_update_from_text(text=normalized_text, db_path=path)
+    parsed = preview.get("parsed")
+    company = str(parsed.get("company") or "") if isinstance(parsed, dict) else ""
+    matches = find_applications_by_company(company, db_path=path) if company else []
+    result = dict(preview)
+    result["candidates"] = _candidate_rows(matches)
+    result["requires_clarification"] = len(matches) > 1
+    if len(matches) > 1:
+        result["matched_application"] = None
+    return result
+
+
+def confirm_status_update(
+    preview: dict[str, object],
+    db_path: DbPath | None = None,
+) -> dict[str, object]:
+    _require_preview_action(preview, "preview_status_update")
+    if preview.get("requires_clarification"):
+        raise ValueError("同一公司存在多条投递记录，请先明确岗位")
+    return _application_row(
+        confirm_update_application_status(preview=preview, db_path=_db_path(db_path))
+    )
+
+
+def query_application_status(
+    company_text: str | None,
+    db_path: DbPath | None = None,
+) -> dict[str, object]:
+    raw_text = (company_text or "").strip()
+    company_match = re.search(r"([A-Za-z0-9\u4e00-\u9fff]+?公司)", raw_text)
+    company = company_match.group(1) if company_match else raw_text
+    if not company:
+        return {"status": "needs_company", "candidates": []}
+
+    matches = find_applications_by_company(company, db_path=_db_path(db_path))
+    if not matches:
+        return {"status": "not_found", "company": company, "candidates": []}
+    if len(matches) > 1:
+        return {
+            "status": "ambiguous",
+            "company": company,
+            "candidates": _candidate_rows(matches),
+        }
+    return {
+        "status": "found",
+        "company": company,
+        "application": _application_row(matches[0]),
+    }
+
+
+def _to_jsonable(value: Any) -> Any:
+    if isinstance(value, (Application, Interview)):
+        return asdict(value)
+    if isinstance(value, dict):
+        return {str(key): _to_jsonable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_to_jsonable(item) for item in value]
+    return value
