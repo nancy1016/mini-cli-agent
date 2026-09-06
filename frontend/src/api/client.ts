@@ -14,16 +14,17 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { Accept: "application/json" },
-  });
-
+async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let message = `请求失败（HTTP ${response.status}）`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) message = payload.detail;
+      const payload = (await response.json()) as { detail?: string | Array<{ msg?: string }> };
+      if (typeof payload.detail === "string") {
+        message = payload.detail;
+      } else if (Array.isArray(payload.detail)) {
+        const details = payload.detail.map((item) => item.msg).filter(Boolean);
+        if (details.length) message = details.join("；");
+      }
     } catch {
       // 非 JSON 错误响应保留统一提示。
     }
@@ -31,4 +32,23 @@ export async function apiGet<T>(path: string): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+export async function apiGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { Accept: "application/json" },
+  });
+  return parseResponse<T>(response);
+}
+
+export async function apiPost<TResponse, TBody>(path: string, body: TBody): Promise<TResponse> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  return parseResponse<TResponse>(response);
 }
