@@ -23,6 +23,10 @@ const exampleCommands = [
   "西安吉利科技公司一面通过了。",
 ];
 
+const AGENT_SESSION_STORAGE_KEY = "jobhunt-ledger.agent-session.v1";
+const STATUS_AMBIGUITY_MESSAGE =
+  "找到多条匹配记录，当前无法唯一判断你问的是哪一条，请根据投递日期、来源、岗位或当前状态进一步说明；如果这些信息仍然相同，请先处理重复记录。";
+
 interface ConversationMessage {
   id: number;
   role: AgentMessageRole;
@@ -30,10 +34,40 @@ interface ConversationMessage {
   details?: string[];
 }
 
+interface StoredAgentSession {
+  messages: ConversationMessage[];
+  pendingPreview: AgentPreview | null;
+}
+
+function loadAgentSession(): StoredAgentSession {
+  const emptySession: StoredAgentSession = { messages: [], pendingPreview: null };
+  try {
+    const raw = window.sessionStorage.getItem(AGENT_SESSION_STORAGE_KEY);
+    if (!raw) return emptySession;
+    const stored = JSON.parse(raw) as Partial<StoredAgentSession>;
+    return {
+      messages: Array.isArray(stored.messages) ? stored.messages : [],
+      pendingPreview:
+        stored.pendingPreview && typeof stored.pendingPreview.preview_id === "string"
+          ? stored.pendingPreview
+          : null,
+    };
+  } catch {
+    return emptySession;
+  }
+}
+
 function recordsFrom(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value)
     ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
     : [];
+}
+
+function isAmbiguousStatusQuery(response: AgentResponse): boolean {
+  return (
+    response.intent === "query_application_status" &&
+    (response.data?.status === "ambiguous" || recordsFrom(response.data?.candidates).length > 0)
+  );
 }
 
 function responseDetails(response: AgentResponse): string[] {
@@ -64,10 +98,18 @@ function responseDetails(response: AgentResponse): string[] {
 
   const candidates = recordsFrom(data.candidates);
   if (candidates.length) {
-    return candidates.map(
-      (item) => `${item.company || "未知公司"} · ${item.position || "岗位待补充"} · ${item.status || "状态待补充"}`,
+    return candidates.map((item) =>
+      [
+        item.company || "未知公司",
+        item.position || "岗位待补充",
+        `投递日期：${item.apply_date || "待补充"}`,
+        `来源：${item.apply_source || "待补充"}`,
+        `状态：${item.status || "待补充"}`,
+      ].join(" · "),
     );
   }
+
+  if (response.intent === "query_application_status") return [];
 
   const application = data.application;
   if (application && typeof application === "object") {
@@ -78,13 +120,18 @@ function responseDetails(response: AgentResponse): string[] {
 }
 
 export default function AgentPage() {
+  const [initialSession] = useState(loadAgentSession);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [pendingPreview, setPendingPreview] = useState<AgentPreview | null>(null);
+  const [messages, setMessages] = useState<ConversationMessage[]>(initialSession.messages);
+  const [pendingPreview, setPendingPreview] = useState<AgentPreview | null>(
+    initialSession.pendingPreview,
+  );
   const [sending, setSending] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [previewError, setPreviewError] = useState("");
-  const nextId = useRef(1);
+  const nextId = useRef(
+    initialSession.messages.reduce((largest, message) => Math.max(largest, message.id), 0) + 1,
+  );
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const appendMessage = (role: AgentMessageRole, content: string, details?: string[]) => {
@@ -96,6 +143,17 @@ export default function AgentPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, pendingPreview, sending]);
 
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        AGENT_SESSION_STORAGE_KEY,
+        JSON.stringify({ messages, pendingPreview }),
+      );
+    } catch {
+      // 浏览器禁用或限制存储时，页面继续以内存会话正常工作。
+    }
+  }, [messages, pendingPreview]);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || sending || confirming || pendingPreview) return;
@@ -106,7 +164,12 @@ export default function AgentPage() {
     setPreviewError("");
     try {
       const response = await sendAgentMessage(text);
-      appendMessage(response.ok ? "assistant" : "error", response.message, responseDetails(response));
+      const ambiguousStatusQuery = isAmbiguousStatusQuery(response);
+      appendMessage(
+        response.ok || ambiguousStatusQuery ? "assistant" : "error",
+        ambiguousStatusQuery ? STATUS_AMBIGUITY_MESSAGE : response.message,
+        responseDetails(response),
+      );
       if (response.requires_confirmation && response.preview) {
         setPendingPreview(response.preview);
       }
