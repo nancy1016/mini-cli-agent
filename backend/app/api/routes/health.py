@@ -13,6 +13,6 @@ def health_check() -> dict[str, object]:
     return {
         "ok": True,
         "service": PROJECT_NAME,
-        "version": "v2-01a",
+        "version": "v2-01b-3a",
         "message": "backend is running",
     }

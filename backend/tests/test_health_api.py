@@ -14,6 +14,6 @@ def test_health_api_returns_running_status(tmp_path):
     assert response.json() == {
         "ok": True,
         "service": "JobHuntLedger-Agent",
-        "version": "v2-01a",
+        "version": "v2-01b-3a",
         "message": "backend is running",
     }

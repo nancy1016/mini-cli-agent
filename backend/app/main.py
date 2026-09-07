@@ -5,9 +5,11 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.routes import agent, applications, dashboard, health, interviews, missing
+from backend.app.api.routes import agent, applications, dashboard, health, interviews, missing, model
 from backend.app.core.config import API_PREFIX, DATABASE_PATH, PROJECT_NAME
 from backend.app.services.agent_controller import AgentController
+from backend.app.services.llm_provider import LLMProvider
+from backend.app.services.lmstudio_provider import LMStudioProvider
 
 
 LOCAL_FRONTEND_ORIGINS = [
@@ -16,7 +18,10 @@ LOCAL_FRONTEND_ORIGINS = [
 ]
 
 
-def create_app(database_path: str | Path = DATABASE_PATH) -> FastAPI:
+def create_app(
+    database_path: str | Path = DATABASE_PATH,
+    model_provider: LLMProvider | None = None,
+) -> FastAPI:
     """创建可注入临时数据库路径的应用实例。"""
     application = FastAPI(
         title=PROJECT_NAME,
@@ -25,6 +30,9 @@ def create_app(database_path: str | Path = DATABASE_PATH) -> FastAPI:
     )
     application.state.database_path = Path(database_path)
     application.state.agent_controller = AgentController()
+    application.state.model_provider = (
+        model_provider if model_provider is not None else LMStudioProvider()
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=LOCAL_FRONTEND_ORIGINS,
@@ -39,6 +47,7 @@ def create_app(database_path: str | Path = DATABASE_PATH) -> FastAPI:
     application.include_router(interviews.router, prefix=API_PREFIX)
     application.include_router(missing.router, prefix=API_PREFIX)
     application.include_router(agent.router, prefix=API_PREFIX)
+    application.include_router(model.router, prefix=API_PREFIX)
     return application
 
 

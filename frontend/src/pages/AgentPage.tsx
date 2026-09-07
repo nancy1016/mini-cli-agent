@@ -7,6 +7,7 @@ import {
   type AgentPreview,
   type AgentResponse,
 } from "../api/agent";
+import { getModelHealth, type ModelHealth } from "../api/model";
 import AgentMessageBubble, {
   type AgentMessageRole,
 } from "../components/AgentMessageBubble";
@@ -26,6 +27,7 @@ const exampleCommands = [
 const AGENT_SESSION_STORAGE_KEY = "jobhunt-ledger.agent-session.v1";
 const STATUS_AMBIGUITY_MESSAGE =
   "找到多条匹配记录，当前无法唯一判断你问的是哪一条，请根据投递日期、来源、岗位或当前状态进一步说明；如果这些信息仍然相同，请先处理重复记录。";
+const DEFAULT_MODEL_NAME = "qwen2.5-7b-instruct";
 
 interface ConversationMessage {
   id: number;
@@ -129,6 +131,9 @@ export default function AgentPage() {
   const [sending, setSending] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [modelHealth, setModelHealth] = useState<ModelHealth | null>(null);
+  const [modelHealthLoading, setModelHealthLoading] = useState(true);
+  const [modelHealthError, setModelHealthError] = useState("");
   const nextId = useRef(
     initialSession.messages.reduce((largest, message) => Math.max(largest, message.id), 0) + 1,
   );
@@ -142,6 +147,23 @@ export default function AgentPage() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, pendingPreview, sending]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getModelHealth()
+      .then((result) => {
+        if (!cancelled) setModelHealth(result);
+      })
+      .catch((reason: Error) => {
+        if (!cancelled) setModelHealthError(reason.message);
+      })
+      .finally(() => {
+        if (!cancelled) setModelHealthLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -207,6 +229,36 @@ export default function AgentPage() {
         title="Agent 助手"
         description="用自然语言管理求职记录和面试提醒。查询操作会直接返回结果，新增和更新操作会先展示预览，确认后才保存。"
       />
+
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Space wrap size={[12, 8]}>
+          <Typography.Text strong>规则 Agent</Typography.Text>
+          <Tag color="green">可用</Tag>
+          <Typography.Text strong>LM Studio</Typography.Text>
+          <Tag
+            color={
+              modelHealthLoading ? "processing" : modelHealth?.model_available ? "green" : "orange"
+            }
+          >
+            {modelHealthLoading ? "检查中" : modelHealth?.model_available ? "可用" : "不可用"}
+          </Tag>
+          <Typography.Text>
+            当前模型：{modelHealth?.configured_model || DEFAULT_MODEL_NAME}
+          </Typography.Text>
+        </Space>
+        <div style={{ marginTop: 6 }}>
+          <Typography.Text type="secondary">
+            LM Studio 不可用不影响基础查询、预览和确认操作。
+          </Typography.Text>
+          {!modelHealthLoading && (modelHealthError || modelHealth?.error) ? (
+            <Typography.Text type="danger" style={{ marginLeft: 12 }}>
+              {modelHealthError
+                ? `模型状态检查失败：${modelHealthError}`
+                : `LM Studio：${modelHealth?.error}`}
+            </Typography.Text>
+          ) : null}
+        </div>
+      </Card>
 
       <Card size="small" title="试试这些指令" style={{ marginBottom: 16 }}>
         <Space wrap>
