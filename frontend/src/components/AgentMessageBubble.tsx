@@ -1,4 +1,6 @@
-import { Alert, Card, List, Typography } from "antd";
+import { Alert, Card, List, Space, Tag, Typography } from "antd";
+
+import type { AgentModelUsage } from "../api/agent";
 
 export type AgentMessageRole = "user" | "assistant" | "error";
 
@@ -6,9 +8,15 @@ interface AgentMessageBubbleProps {
   role: AgentMessageRole;
   content: string;
   details?: string[];
+  model?: AgentModelUsage;
 }
 
-export default function AgentMessageBubble({ role, content, details = [] }: AgentMessageBubbleProps) {
+export default function AgentMessageBubble({
+  role,
+  content,
+  details = [],
+  model,
+}: AgentMessageBubbleProps) {
   if (role === "error") {
     return <Alert type="error" showIcon message="操作失败" description={content} />;
   }
@@ -39,6 +47,17 @@ export default function AgentMessageBubble({ role, content, details = [] }: Agen
               </List.Item>
             )}
           />
+        ) : null}
+        {!isUser && model ? (
+          <Space size={6} style={{ marginTop: 8 }}>
+            {model.used ? (
+              <Tag color="purple">LM Studio 已润色</Tag>
+            ) : model.fallback_reason ? (
+              <Tag color="orange">模型不可用，已使用规则回答</Tag>
+            ) : (
+              <Tag>规则 Agent 回答</Tag>
+            )}
+          </Space>
         ) : null}
       </Card>
     </div>

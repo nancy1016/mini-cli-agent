@@ -24,6 +24,10 @@ LM_STUDIO_HEALTH_TIMEOUT_SECONDS = _positive_float_env(
     "LM_STUDIO_HEALTH_TIMEOUT_SECONDS",
     2.0,
 )
+LM_STUDIO_CHAT_TIMEOUT_SECONDS = _positive_float_env(
+    "LM_STUDIO_CHAT_TIMEOUT_SECONDS",
+    30.0,
+)
 
 
 def resolve_database_path(db_path: str | Path | None = None) -> Path:

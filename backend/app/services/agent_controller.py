@@ -10,7 +10,9 @@ from typing import Callable
 from uuid import uuid4
 
 from backend.app.core.config import resolve_database_path
+from backend.app.services.agent_response_enhancer import enhance_agent_response
 from backend.app.services.intent_router import route_intent
+from backend.app.services.llm_provider import LLMProvider
 from backend.app.services.tool_registry import ToolRegistry
 
 
@@ -66,7 +68,12 @@ def _base_response(intent: str, ok: bool, message: str) -> dict[str, object]:
         "data": None,
         "preview": None,
         "requires_confirmation": False,
-        "model": {"used": False, "provider": None, "name": None},
+        "model": {
+            "used": False,
+            "provider": None,
+            "name": None,
+            "fallback_reason": None,
+        },
     }
 
 
@@ -76,10 +83,12 @@ class AgentController:
         registry: ToolRegistry | None = None,
         preview_ttl: timedelta = timedelta(minutes=15),
         clock: Clock = _utc_now,
+        model_provider: LLMProvider | None = None,
     ) -> None:
         self.registry = registry or ToolRegistry()
         self.preview_ttl = preview_ttl
         self.clock = clock
+        self.model_provider = model_provider
         self._pending: dict[str, PendingPreview] = {}
         self._lock = Lock()
 
@@ -116,7 +125,18 @@ class AgentController:
         if not isinstance(result, dict):
             return _base_response(intent, False, "Agent 工具返回了无法处理的数据。")
         if intent in QUERY_INTENTS:
-            return self._query_response(intent, result)
+            response = self._query_response(intent, result)
+            if response["ok"]:
+                enhanced = enhance_agent_response(
+                    user_text=text,
+                    intent=intent,
+                    rule_message=str(response["message"]),
+                    data=result,
+                    model_provider=self.model_provider,
+                )
+                response["message"] = enhanced["message"]
+                response["model"] = enhanced["model"]
+            return response
         return self._preview_response(intent, result, db_path=db_path)
 
     def _query_response(self, intent: str, result: dict[str, object]) -> dict[str, object]:

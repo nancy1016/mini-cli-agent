@@ -4,6 +4,7 @@ import { Button, Card, Input, Space, Spin, Tag, Typography } from "antd";
 import {
   confirmAgentPreview,
   sendAgentMessage,
+  type AgentModelUsage,
   type AgentPreview,
   type AgentResponse,
 } from "../api/agent";
@@ -28,12 +29,28 @@ const AGENT_SESSION_STORAGE_KEY = "jobhunt-ledger.agent-session.v1";
 const STATUS_AMBIGUITY_MESSAGE =
   "找到多条匹配记录，当前无法唯一判断你问的是哪一条，请根据投递日期、来源、岗位或当前状态进一步说明；如果这些信息仍然相同，请先处理重复记录。";
 const DEFAULT_MODEL_NAME = "qwen2.5-7b-instruct";
+const MISSING_FIELD_LABELS: Record<string, string> = {
+  company: "公司",
+  position: "岗位",
+  status: "当前状态",
+  apply_date: "投递日期",
+  apply_link: "投递链接",
+  location: "工作地点",
+  apply_source: "投递来源",
+  recruit_type: "招聘类型",
+  notes: "备注",
+  interview_time: "面试时间",
+  interview_method: "面试方式",
+  stage: "面试阶段",
+  meeting_link: "会议链接",
+};
 
 interface ConversationMessage {
   id: number;
   role: AgentMessageRole;
   content: string;
   details?: string[];
+  model?: AgentModelUsage;
 }
 
 interface StoredAgentSession {
@@ -93,7 +110,11 @@ function responseDetails(response: AgentResponse): string[] {
   const missingItems = recordsFrom(data.items);
   if (missingItems.length) {
     return missingItems.slice(0, 8).map((item) => {
-      const fields = Array.isArray(item.missing_fields) ? item.missing_fields.join("、") : "待确认";
+      const fields = Array.isArray(item.missing_fields)
+        ? item.missing_fields
+            .map((field) => MISSING_FIELD_LABELS[String(field)] || String(field))
+            .join("、")
+        : "待确认";
       return `${item.company || "未知公司"} · ${item.position || "岗位待补充"}：${fields}`;
     });
   }
@@ -139,8 +160,13 @@ export default function AgentPage() {
   );
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  const appendMessage = (role: AgentMessageRole, content: string, details?: string[]) => {
-    const message = { id: nextId.current++, role, content, details };
+  const appendMessage = (
+    role: AgentMessageRole,
+    content: string,
+    details?: string[],
+    model?: AgentModelUsage,
+  ) => {
+    const message = { id: nextId.current++, role, content, details, model };
     setMessages((current) => [...current, message]);
   };
 
@@ -191,6 +217,7 @@ export default function AgentPage() {
         response.ok || ambiguousStatusQuery ? "assistant" : "error",
         ambiguousStatusQuery ? STATUS_AMBIGUITY_MESSAGE : response.message,
         responseDetails(response),
+        response.intent.startsWith("query_") ? response.model : undefined,
       );
       if (response.requires_confirmation && response.preview) {
         setPendingPreview(response.preview);
@@ -248,7 +275,7 @@ export default function AgentPage() {
         </Space>
         <div style={{ marginTop: 6 }}>
           <Typography.Text type="secondary">
-            LM Studio 不可用不影响基础查询、预览和确认操作。
+            LM Studio 可用于查询回答润色；即使不可用，基础查询、预览和确认操作仍可正常使用。
           </Typography.Text>
           {!modelHealthLoading && (modelHealthError || modelHealth?.error) ? (
             <Typography.Text type="danger" style={{ marginLeft: 12 }}>
@@ -303,6 +330,7 @@ export default function AgentPage() {
                 role={message.role}
                 content={message.content}
                 details={message.details}
+                model={message.model}
               />
             ))}
             {pendingPreview ? (

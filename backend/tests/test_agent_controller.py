@@ -20,6 +20,28 @@ from jobhunt.repository import (
 BASE_DATE = date(2026, 7, 13)
 
 
+class RecordingModelProvider:
+    def __init__(self, *, ok=True, content="模型润色后的回答", error=None):
+        self.calls = []
+        self.result = {
+            "ok": ok,
+            "content": content,
+            "provider": "LM Studio",
+            "model": "qwen2.5-7b-instruct",
+            "error": error,
+        }
+
+    def chat(self, messages, *, temperature=0.2, max_tokens=300):
+        self.calls.append(
+            {
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
+        return self.result
+
+
 def test_query_applications_returns_real_data(tmp_path):
     db_path = tmp_path / "jobhunt.db"
     create_application(company="西安吉利科技公司", position="测试开发", db_path=db_path)
@@ -246,3 +268,58 @@ def test_unknown_input_never_writes(tmp_path):
     assert result["ok"] is False
     assert result["intent"] == "unknown"
     assert list_applications(db_path=db_path) == []
+
+
+def test_successful_query_uses_model_without_changing_tool_data(tmp_path):
+    db_path = tmp_path / "jobhunt.db"
+    create_application(company="润色查询公司", position="测试开发", db_path=db_path)
+    provider = RecordingModelProvider(content="你目前有 1 条投递记录。")
+
+    result = AgentController(model_provider=provider).handle_agent_message(
+        "我现在投了哪些公司？", db_path=db_path
+    )
+
+    assert result["message"] == "你目前有 1 条投递记录。"
+    assert result["data"]["applications"][0]["company"] == "润色查询公司"
+    assert result["model"] == {
+        "used": True,
+        "provider": "LM Studio",
+        "name": "qwen2.5-7b-instruct",
+        "fallback_reason": None,
+    }
+    assert len(provider.calls) == 1
+
+
+def test_query_falls_back_to_rule_message_when_model_fails(tmp_path):
+    db_path = tmp_path / "jobhunt.db"
+    create_application(company="回退公司", position="测试开发", db_path=db_path)
+    provider = RecordingModelProvider(ok=False, content=None, error="模型调用超时")
+
+    result = AgentController(model_provider=provider).handle_agent_message(
+        "我现在投了哪些公司？", db_path=db_path
+    )
+
+    assert result["message"] == "目前共有 1 条投递记录。"
+    assert result["model"]["used"] is False
+    assert "模型调用超时" in result["model"]["fallback_reason"]
+    assert result["data"]["applications"][0]["company"] == "回退公司"
+
+
+def test_preview_confirm_and_unknown_never_call_model(tmp_path):
+    db_path = tmp_path / "jobhunt.db"
+    provider = RecordingModelProvider()
+    controller = AgentController(model_provider=provider)
+
+    preview = controller.handle_agent_message(
+        "今天在官网投递了安全边界公司的测试开发岗，地点西安。",
+        db_path=db_path,
+        base_date=BASE_DATE,
+    )
+    assert provider.calls == []
+
+    controller.confirm_agent_preview(preview["preview"]["preview_id"], db_path=db_path)
+    assert provider.calls == []
+
+    unknown = controller.handle_agent_message("帮我写一首诗", db_path=db_path)
+    assert unknown["intent"] == "unknown"
+    assert provider.calls == []

@@ -19,6 +19,7 @@ class AgentModelUsage(BaseModel):
     used: bool = False
     provider: str | None = None
     name: str | None = None
+    fallback_reason: str | None = None
 
 
 class PreviewEnvelope(BaseModel):

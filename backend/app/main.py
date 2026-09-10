@@ -29,10 +29,8 @@ def create_app(
         description="JobHuntLedger-Agent Web API 与规则 Agent 安全确认闭环",
     )
     application.state.database_path = Path(database_path)
-    application.state.agent_controller = AgentController()
-    application.state.model_provider = (
-        model_provider if model_provider is not None else LMStudioProvider()
-    )
+    application.state.model_provider = model_provider or LMStudioProvider()
+    application.state.agent_controller = AgentController(model_provider=model_provider)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=LOCAL_FRONTEND_ORIGINS,
@@ -51,4 +49,4 @@ def create_app(
     return application
 
 
-app = create_app()
+app = create_app(model_provider=LMStudioProvider())

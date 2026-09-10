@@ -8,6 +8,29 @@ from backend.app.main import create_app
 from jobhunt.repository import create_application, create_interview, list_applications, list_interviews
 
 
+class ApiModelProvider:
+    def health_check(self):
+        return {
+            "ok": True,
+            "provider": "LM Studio",
+            "base_url": "http://127.0.0.1:1234/v1",
+            "configured_model": "qwen2.5-7b-instruct",
+            "loaded_models": ["qwen2.5-7b-instruct"],
+            "server_reachable": True,
+            "model_available": True,
+            "error": None,
+        }
+
+    def chat(self, messages, *, temperature=0.2, max_tokens=300):
+        return {
+            "ok": True,
+            "content": "你目前有 1 条投递记录。",
+            "provider": "LM Studio",
+            "model": "qwen2.5-7b-instruct",
+            "error": None,
+        }
+
+
 def test_agent_chat_queries_applications(tmp_path):
     db_path = tmp_path / "jobhunt.db"
     create_application(company="查询公司", position="测试开发", db_path=db_path)
@@ -152,3 +175,22 @@ def test_agent_request_validation_returns_422(tmp_path):
 
     assert client.post("/api/v1/agent/chat", json={}).status_code == 422
     assert client.post("/api/v1/agent/confirm", json={}).status_code == 422
+
+
+def test_agent_chat_api_exposes_model_usage_without_changing_data(tmp_path):
+    db_path = tmp_path / "jobhunt.db"
+    create_application(company="API 润色公司", position="测试开发", db_path=db_path)
+    client = TestClient(create_app(db_path, model_provider=ApiModelProvider()))
+
+    response = client.post("/api/v1/agent/chat", json={"text": "我现在投了哪些公司？"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] == "你目前有 1 条投递记录。"
+    assert body["data"]["applications"][0]["company"] == "API 润色公司"
+    assert body["model"] == {
+        "used": True,
+        "provider": "LM Studio",
+        "name": "qwen2.5-7b-instruct",
+        "fallback_reason": None,
+    }

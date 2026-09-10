@@ -6,6 +6,7 @@ export interface AgentModelUsage {
   used: boolean;
   provider: string | null;
   name: string | null;
+  fallback_reason?: string | null;
 }
 
 export interface AgentMissingFields {
