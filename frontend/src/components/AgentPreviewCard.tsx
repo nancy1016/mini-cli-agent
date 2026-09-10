@@ -15,9 +15,12 @@ const fieldDefinitions: Record<AgentPreviewType, Array<[string, string]>> = {
     ["company", "公司"],
     ["position", "岗位"],
     ["location", "地点"],
+    ["recruit_type", "招聘类型"],
     ["apply_source", "投递渠道"],
+    ["apply_link", "投递链接"],
     ["apply_date", "投递日期"],
     ["status", "当前状态"],
+    ["notes", "备注"],
   ],
   interview: [
     ["company", "公司"],
@@ -45,14 +48,16 @@ const fieldLabels: Record<string, string> = {
   company: "公司",
   position: "岗位",
   location: "地点",
+  recruit_type: "招聘类型",
   apply_source: "投递渠道",
   apply_link: "投递链接",
+  notes: "备注",
   interview_time: "面试时间",
   meeting_link: "会议链接",
 };
 
 function displayValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "待补充";
   if (typeof value === "object") {
     const item = value as Record<string, unknown>;
     return [item.company, item.position, item.status].filter(Boolean).join(" · ") || "—";
